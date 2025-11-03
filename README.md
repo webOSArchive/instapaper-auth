@@ -1,6 +1,12 @@
 # pocket-auth
 Code-based auth for Pocket's service, bridging OAuth2 to legacy devices
 
+## Archival
+
+In July 2025, Mozilla shut down Pocket. As a result, this service no longer works.
+
+The archive remains to illustrate a pattern for supporting OAuth on legacy devices.
+
 ## Requirements
 - A web server
 - PHP
