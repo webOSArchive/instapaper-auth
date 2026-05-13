@@ -34,7 +34,7 @@ function debugEcho($msg) {
 function diePretty($msg) {
     global $docRoot;
     global $appTitle;
-    echo file_get_contents("https://www.webosarchive.org/app-template/header.php?docRoot=" . $docRoot . "&appTitle=" . $appTitle . "&protocol=" . findProtocol());
+    echo file_get_contents("https://www.webosarchive.org/app-template/header.php?docRoot=" . urlencode($docRoot) . "&appTitle=" . urlencode($appTitle) . "&protocol=" . findProtocol());
     echo "<p align='center'><b>Error</b>: " . $msg . "</p>";
     include ($docRoot . "inc/footer.php");
 }
@@ -42,7 +42,7 @@ function diePretty($msg) {
 function succeedPretty($msg) {
     global $docRoot;
     global $appTitle;
-    echo file_get_contents("https://www.webosarchive.org/app-template/header.php?docRoot=" . $docRoot . "&appTitle=" . $appTitle . "&protocol=" . findProtocol());
+    echo file_get_contents("https://www.webosarchive.org/app-template/header.php?docRoot=" . urlencode($docRoot) . "&appTitle=" . urlencode($appTitle) . "&protocol=" . findProtocol());
     echo "<p align='center'>" . $msg . "</p>";
     include ($docRoot . "inc/footer.php");
 }
