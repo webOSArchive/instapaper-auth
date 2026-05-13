@@ -9,6 +9,7 @@ Code-based auth for Instapaper's service, bridging OAuth2 to legacy devices
 ## Install
 - `git clone https://github.com/webOSArchive/instapaper-auth`
 - `cd instapaper-auth`
+- `composer require andreskrey/readability.php`
 - `cp config-example.php config.php`
 - Modify config.php to include your consumer key, change any other global you want
 - `mkdir cache/`
