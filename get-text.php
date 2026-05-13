@@ -6,8 +6,7 @@
 //   id  — bookmark_id
 //   t   — oauth_token
 //   s   — oauth_token_secret
-//
-// The consumer key/secret come from config.php.
+//   u   — article URL (fallback if Instapaper text API is unavailable)
 
 include("config.php");
 include("common.php");
@@ -18,6 +17,7 @@ spl_autoload_register(function($classes) {
 $bookmarkId       = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $oauthToken       = isset($_GET['t'])  ? trim($_GET['t'])    : '';
 $oauthTokenSecret = isset($_GET['s'])  ? trim($_GET['s'])    : '';
+$articleUrl       = isset($_GET['u'])  ? trim($_GET['u'])    : '';
 
 if (!$bookmarkId || empty($oauthToken) || empty($oauthTokenSecret)) {
     header('HTTP/1.1 400 Bad Request');
@@ -27,6 +27,11 @@ if (!$bookmarkId || empty($oauthToken) || empty($oauthTokenSecret)) {
 $auth = new InstapaperAuth($consumerKey, $consumerSecret);
 $html = $auth->getBookmarkText($bookmarkId, $oauthToken, $oauthTokenSecret);
 
+// Fall back to fetching the article URL directly if text API is unavailable.
+if ($html === false && !empty($articleUrl)) {
+    $html = fetchUrlDirect($articleUrl);
+}
+
 if ($html === false) {
     header('HTTP/1.1 502 Bad Gateway');
     die('<html><body><p>Could not retrieve article from Instapaper. Please check connectivity and try again.</p></body></html>');
@@ -34,4 +39,19 @@ if ($html === false) {
 
 header('Content-Type: text/html; charset=utf-8');
 echo $html;
+
+function fetchUrlDirect($url) {
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (compatible; ReadOnTouch/3.1)');
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($httpCode !== 200 || empty($response)) {
+        return false;
+    }
+    return $response;
+}
 ?>

@@ -48,7 +48,7 @@ class InstapaperAuth {
     // Fetch the mobilized article HTML for a given bookmark_id.
     // Used by the get-text.php proxy.
     public function getBookmarkText($bookmarkId, $oauthToken, $oauthTokenSecret) {
-        $url = 'https://www.instapaper.com/api/1/bookmarks/' . intval($bookmarkId) . '/get_text';
+        $url = 'https://www.instapaper.com/api/1.1/bookmarks/' . intval($bookmarkId) . '/get_text';
         $oauthParams = $this->buildOAuthParams($oauthToken);
         $signature   = $this->buildSignature('GET', $url, $oauthParams, $oauthTokenSecret);
         $oauthParams['oauth_signature'] = $signature;
