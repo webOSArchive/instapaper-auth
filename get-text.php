@@ -1,12 +1,14 @@
 <?php
-// Proxy endpoint: fetches mobilized article HTML from Instapaper on behalf of
-// a webOS device (which cannot set custom HTTP headers for OAuth signing).
+// Proxy endpoint: fetches article content on behalf of a webOS device.
+// The returned HTML is injected directly into the app's DOM via enyo.HtmlContent,
+// so it must be a clean fragment — no <style>, <link>, or <script> tags, no full
+// document wrapper, all URLs absolute.
 //
 // Query params:
 //   id  — bookmark_id
 //   t   — oauth_token
 //   s   — oauth_token_secret
-//   u   — article URL (fallback if Instapaper text API is unavailable)
+//   u   — article URL (fallback + base for URL rewriting)
 
 include("config.php");
 include("common.php");
@@ -34,17 +36,18 @@ $html = $auth->getBookmarkText($bookmarkId, $oauthToken, $oauthTokenSecret);
 if ($html === false && !empty($articleUrl)) {
     $rawHtml = fetchUrlDirect($articleUrl);
     if ($rawHtml !== false) {
+        // Try Readability for a clean mobilised extract.
         $html = applyReadability($rawHtml, $articleUrl);
         if ($html === false) {
-            // Readability not installed or failed — rewrite URLs manually
-            $html = rewriteAbsoluteUrls($rawHtml, $articleUrl);
+            // Readability not installed — clean and rewrite the full page.
+            $html = cleanAndRewrite($rawHtml, $articleUrl);
         }
     }
 }
 
 if ($html === false) {
     header('HTTP/1.1 502 Bad Gateway');
-    die('<html><body><p>Could not retrieve article from Instapaper. Please check connectivity and try again.</p></body></html>');
+    die('<p>Could not retrieve article. Please check connectivity and try again.</p>');
 }
 
 header('Content-Type: text/html; charset=utf-8');
@@ -67,35 +70,39 @@ function fetchUrlDirect($url) {
     return $response;
 }
 
+// Tries fivefilters/readability.php, then andreskrey/readability.php.
+// Returns a clean HTML fragment on success, false if neither library is present.
 function applyReadability($html, $url) {
-    if (!class_exists('andreskrey\Readability\Readability')) {
+    if (class_exists('fivefilters\Readability\Readability')) {
+        $readabilityClass  = 'fivefilters\Readability\Readability';
+        $configClass       = 'fivefilters\Readability\Configuration';
+        $exceptionClass    = 'fivefilters\Readability\ParseException';
+    } elseif (class_exists('andreskrey\Readability\Readability')) {
+        $readabilityClass  = 'andreskrey\Readability\Readability';
+        $configClass       = 'andreskrey\Readability\Configuration';
+        $exceptionClass    = 'andreskrey\Readability\ParseException';
+    } else {
         return false;
     }
     try {
-        $config = new \andreskrey\Readability\Configuration([
-            'originalURL'     => $url,
-            'fixRelativeURLs' => true,
-        ]);
-        $readability = new \andreskrey\Readability\Readability($config);
+        $config      = new $configClass(['originalURL' => $url, 'fixRelativeURLs' => true]);
+        $readability = new $readabilityClass($config);
         $readability->parse($html);
         $title   = $readability->getTitle() ?: '';
         $content = $readability->getContent();
         if (empty($content)) {
             return false;
         }
-        $safeTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
-        return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' . $safeTitle . '</title>'
-            . '<style>body{font-family:serif;max-width:760px;margin:20px auto;padding:0 12px;font-size:16px;line-height:1.6}img{max-width:100%;height:auto}</style>'
-            . '</head><body><h1>' . $safeTitle . '</h1>' . $content . '</body></html>';
-    } catch (\Exception $e) {
+        return '<h2>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</h2>' . addImageConstraints($content);
+    } catch (Exception $e) {
         error_log('Readability failed for ' . $url . ': ' . $e->getMessage());
         return false;
     }
 }
 
-// Rewrites relative and protocol-relative URLs to absolute using DOMDocument.
-// Used when Readability is not installed.
-function rewriteAbsoluteUrls($html, $baseUrl) {
+// Strips <style>/<link>/<script> tags, rewrites URLs to absolute, constrains images.
+// Returns a body-content HTML fragment suitable for injection into the app DOM.
+function cleanAndRewrite($html, $baseUrl) {
     $p      = parse_url($baseUrl);
     $scheme = isset($p['scheme']) ? $p['scheme'] : 'https';
     $host   = isset($p['host'])   ? $p['host']   : '';
@@ -108,37 +115,64 @@ function rewriteAbsoluteUrls($html, $baseUrl) {
     $dom->loadHTML('<?xml encoding="UTF-8">' . $html);
     libxml_clear_errors();
 
-    $attrs = ['src', 'href', 'action', 'poster'];
-    foreach ($dom->getElementsByTagName('*') as $node) {
-        foreach ($attrs as $attr) {
-            $val = $node->getAttribute($attr);
-            if (empty($val)) continue;
-            $node->setAttribute($attr, resolveUrl($val, $scheme, $origin, $dir));
+    // Remove tags that would pollute the app's CSS/JS context.
+    foreach (['style', 'link', 'script', 'noscript', 'iframe', 'object', 'embed'] as $tag) {
+        $nodes = $dom->getElementsByTagName($tag);
+        while ($nodes->length > 0) {
+            $node = $nodes->item(0);
+            $node->parentNode->removeChild($node);
         }
-        // srcset needs split handling
+    }
+
+    // Rewrite URL attributes to absolute.
+    foreach ($dom->getElementsByTagName('*') as $node) {
+        foreach (['src', 'href', 'action', 'poster'] as $attr) {
+            $val = $node->getAttribute($attr);
+            if (!empty($val)) {
+                $node->setAttribute($attr, resolveUrl($val, $scheme, $origin, $dir));
+            }
+        }
         $srcset = $node->getAttribute('srcset');
         if (!empty($srcset)) {
             $parts = preg_split('/,\s+/', $srcset);
             foreach ($parts as &$part) {
-                $tokens = preg_split('/\s+/', trim($part), 2);
+                $tokens  = preg_split('/\s+/', trim($part), 2);
                 $tokens[0] = resolveUrl($tokens[0], $scheme, $origin, $dir);
-                $part = implode(' ', $tokens);
+                $part    = implode(' ', $tokens);
             }
             $node->setAttribute('srcset', implode(', ', $parts));
         }
     }
 
+    // Constrain images so they don't break the app layout.
+    foreach ($dom->getElementsByTagName('img') as $img) {
+        $existing = $img->getAttribute('style');
+        $img->setAttribute('style', 'max-width:100%;height:auto;' . $existing);
+    }
+
+    // Extract just the body content as a fragment.
+    $body = $dom->getElementsByTagName('body')->item(0);
+    if ($body) {
+        $fragment = '';
+        foreach ($body->childNodes as $child) {
+            $fragment .= $dom->saveHTML($child);
+        }
+        return $fragment;
+    }
     return $dom->saveHTML();
+}
+
+function addImageConstraints($html) {
+    return preg_replace('/<img\s/i', '<img style="max-width:100%;height:auto;" ', $html);
 }
 
 function resolveUrl($url, $scheme, $origin, $dir) {
     if (empty($url)) return $url;
-    // Leave data URIs, anchors, javascript, mailto, and already-absolute URLs
     foreach (['data:', '#', 'javascript:', 'mailto:', 'http://', 'https://'] as $prefix) {
         if (strpos($url, $prefix) === 0) return $url;
     }
-    if (strpos($url, '//') === 0) return $scheme . ':' . $url;  // protocol-relative
-    if (strpos($url, '/') === 0)  return $origin . $url;          // root-relative
-    return $dir . $url;                                             // path-relative
+    if (strpos($url, '//') === 0) return $scheme . ':' . $url;
+    if (strpos($url, '/') === 0)  return $origin . $url;
+    return $dir . $url;
 }
 ?>
