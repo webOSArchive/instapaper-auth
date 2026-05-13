@@ -37,6 +37,12 @@ if ($html === false) {
     die('<html><body><p>Could not retrieve article from Instapaper. Please check connectivity and try again.</p></body></html>');
 }
 
+// Inject <base href> so relative and protocol-relative URLs resolve correctly
+// when the saved HTML file is loaded from file:// by the webOS WebView.
+if (!empty($articleUrl)) {
+    $html = injectBaseTag($html, $articleUrl);
+}
+
 header('Content-Type: text/html; charset=utf-8');
 echo $html;
 
@@ -53,5 +59,17 @@ function fetchUrlDirect($url) {
         return false;
     }
     return $response;
+}
+
+function injectBaseTag($html, $url) {
+    $base = '<base href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '">';
+    // Insert after <head> (with any attributes), or before </head>, or at the top.
+    if (preg_match('/<head(\s[^>]*)?>/i', $html)) {
+        return preg_replace('/(<head(\s[^>]*)?>)/i', '$1' . $base, $html, 1);
+    } elseif (stripos($html, '</head>') !== false) {
+        return str_ireplace('</head>', $base . '</head>', $html);
+    } else {
+        return $base . $html;
+    }
 }
 ?>
