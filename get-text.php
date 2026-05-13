@@ -14,6 +14,10 @@ spl_autoload_register(function($classes) {
     include 'classes/' . $classes . ".php";
 });
 
+if (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require __DIR__ . '/vendor/autoload.php';
+}
+
 $bookmarkId       = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $oauthToken       = isset($_GET['t'])  ? trim($_GET['t'])    : '';
 $oauthTokenSecret = isset($_GET['s'])  ? trim($_GET['s'])    : '';
@@ -27,9 +31,15 @@ if (!$bookmarkId || empty($oauthToken) || empty($oauthTokenSecret)) {
 $auth = new InstapaperAuth($consumerKey, $consumerSecret);
 $html = $auth->getBookmarkText($bookmarkId, $oauthToken, $oauthTokenSecret);
 
-// Fall back to fetching the article URL directly if text API is unavailable.
 if ($html === false && !empty($articleUrl)) {
-    $html = fetchUrlDirect($articleUrl);
+    $rawHtml = fetchUrlDirect($articleUrl);
+    if ($rawHtml !== false) {
+        $html = applyReadability($rawHtml, $articleUrl);
+        if ($html === false) {
+            // Readability not installed or failed — rewrite URLs manually
+            $html = rewriteAbsoluteUrls($rawHtml, $articleUrl);
+        }
+    }
 }
 
 if ($html === false) {
@@ -37,14 +47,10 @@ if ($html === false) {
     die('<html><body><p>Could not retrieve article from Instapaper. Please check connectivity and try again.</p></body></html>');
 }
 
-// Inject <base href> so relative and protocol-relative URLs resolve correctly
-// when the saved HTML file is loaded from file:// by the webOS WebView.
-if (!empty($articleUrl)) {
-    $html = injectBaseTag($html, $articleUrl);
-}
-
 header('Content-Type: text/html; charset=utf-8');
 echo $html;
+
+// ---- helpers ----
 
 function fetchUrlDirect($url) {
     $ch = curl_init($url);
@@ -61,15 +67,78 @@ function fetchUrlDirect($url) {
     return $response;
 }
 
-function injectBaseTag($html, $url) {
-    $base = '<base href="' . htmlspecialchars($url, ENT_QUOTES, 'UTF-8') . '">';
-    // Insert after <head> (with any attributes), or before </head>, or at the top.
-    if (preg_match('/<head(\s[^>]*)?>/i', $html)) {
-        return preg_replace('/(<head(\s[^>]*)?>)/i', '$1' . $base, $html, 1);
-    } elseif (stripos($html, '</head>') !== false) {
-        return str_ireplace('</head>', $base . '</head>', $html);
-    } else {
-        return $base . $html;
+function applyReadability($html, $url) {
+    if (!class_exists('andreskrey\Readability\Readability')) {
+        return false;
     }
+    try {
+        $config = new \andreskrey\Readability\Configuration([
+            'originalURL'     => $url,
+            'fixRelativeURLs' => true,
+        ]);
+        $readability = new \andreskrey\Readability\Readability($config);
+        $readability->parse($html);
+        $title   = $readability->getTitle() ?: '';
+        $content = $readability->getContent();
+        if (empty($content)) {
+            return false;
+        }
+        $safeTitle = htmlspecialchars($title, ENT_QUOTES, 'UTF-8');
+        return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' . $safeTitle . '</title>'
+            . '<style>body{font-family:serif;max-width:760px;margin:20px auto;padding:0 12px;font-size:16px;line-height:1.6}img{max-width:100%;height:auto}</style>'
+            . '</head><body><h1>' . $safeTitle . '</h1>' . $content . '</body></html>';
+    } catch (\Exception $e) {
+        error_log('Readability failed for ' . $url . ': ' . $e->getMessage());
+        return false;
+    }
+}
+
+// Rewrites relative and protocol-relative URLs to absolute using DOMDocument.
+// Used when Readability is not installed.
+function rewriteAbsoluteUrls($html, $baseUrl) {
+    $p      = parse_url($baseUrl);
+    $scheme = isset($p['scheme']) ? $p['scheme'] : 'https';
+    $host   = isset($p['host'])   ? $p['host']   : '';
+    $port   = isset($p['port'])   ? ':' . $p['port'] : '';
+    $origin = $scheme . '://' . $host . $port;
+    $dir    = $origin . (isset($p['path']) ? substr($p['path'], 0, strrpos($p['path'], '/') + 1) : '/');
+
+    $dom = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $dom->loadHTML('<?xml encoding="UTF-8">' . $html);
+    libxml_clear_errors();
+
+    $attrs = ['src', 'href', 'action', 'poster'];
+    foreach ($dom->getElementsByTagName('*') as $node) {
+        foreach ($attrs as $attr) {
+            $val = $node->getAttribute($attr);
+            if (empty($val)) continue;
+            $node->setAttribute($attr, resolveUrl($val, $scheme, $origin, $dir));
+        }
+        // srcset needs split handling
+        $srcset = $node->getAttribute('srcset');
+        if (!empty($srcset)) {
+            $parts = preg_split('/,\s+/', $srcset);
+            foreach ($parts as &$part) {
+                $tokens = preg_split('/\s+/', trim($part), 2);
+                $tokens[0] = resolveUrl($tokens[0], $scheme, $origin, $dir);
+                $part = implode(' ', $tokens);
+            }
+            $node->setAttribute('srcset', implode(', ', $parts));
+        }
+    }
+
+    return $dom->saveHTML();
+}
+
+function resolveUrl($url, $scheme, $origin, $dir) {
+    if (empty($url)) return $url;
+    // Leave data URIs, anchors, javascript, mailto, and already-absolute URLs
+    foreach (['data:', '#', 'javascript:', 'mailto:', 'http://', 'https://'] as $prefix) {
+        if (strpos($url, $prefix) === 0) return $url;
+    }
+    if (strpos($url, '//') === 0) return $scheme . ':' . $url;  // protocol-relative
+    if (strpos($url, '/') === 0)  return $origin . $url;          // root-relative
+    return $dir . $url;                                             // path-relative
 }
 ?>
