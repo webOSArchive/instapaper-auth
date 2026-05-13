@@ -30,13 +30,30 @@ window.addEventListener('load', function() {
     //Show appropriate instructions for platform
     $client = strtolower($_SERVER['HTTP_USER_AGENT']);
     if (strpos($client, "hpwos") || strpos($client, "webos")) {
-        echo "Welcome webOS User! Unfortunately, you cannot complete Pocket authorization on your device.<br>Please visit this site from a modern browser!";
+        echo "Welcome webOS User! Unfortunately, you cannot complete Instapaper authorization on your device.<br>Please visit this site from a modern browser!";
     } else {
     ?>
-    <form action="../pocket-auth-1.php" method="POST">
-        <b>Enter the activation code from your webOS device</b>
-        <p><input type="text" name="activationCode" id="activationCode" style="text-align: center;font-size: larger;text-transform: uppercase;"></p>
-        <p><input type="submit" name="btnPocketAuth" id="btnPocketAuth" value="Login to Pocket" style="font-size: medium;"></p>
+    <form action="../instapaper-auth-1.php" method="POST">
+        <table cellpadding="6" cellspacing="0" border="0">
+        <tr><td colspan="2"><b>Enter the activation code shown on your webOS device:</b></td></tr>
+        <tr>
+            <td align="right">Code:</td>
+            <td><input type="text" name="activationCode" id="activationCode" style="text-align: center;font-size: larger;text-transform: uppercase;" autocomplete="off"></td>
+        </tr>
+        <tr><td colspan="2"><br><b>Enter your Instapaper login:</b></td></tr>
+        <tr>
+            <td align="right">Username:</td>
+            <td><input type="text" name="username" id="username" style="font-size: medium;" autocomplete="username"></td>
+        </tr>
+        <tr>
+            <td align="right">Password:</td>
+            <td><input type="password" name="password" id="password" style="font-size: medium;" autocomplete="current-password"></td>
+        </tr>
+        <tr>
+            <td></td>
+            <td><br><input type="submit" name="btnInstapaperAuth" id="btnInstapaperAuth" value="Sign in to Instapaper" style="font-size: medium;"></td>
+        </tr>
+        </table>
     </form>
 </div>
 <?php

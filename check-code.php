@@ -23,7 +23,7 @@ if (is_file($file)) {
     } catch (Exception $ex) {
         die("{\"error\":\"Unable to open activation code cache file.\"}");
     }
-    if ($codeObj && isset($codeObj->access_token) && isset($codeObj->username))
+    if ($codeObj && isset($codeObj->oauth_token) && isset($codeObj->username))
         $cache->removeActivatedLogin($code, $cachePath);
 } else {
     die("{\"error\":\"Activation code not found or expired.\"}");
