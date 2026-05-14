@@ -50,7 +50,12 @@ if ($html === false) {
     die('<p>Could not retrieve article. Please check connectivity and try again.</p>');
 }
 
+$meta = extractMeta($html);
+// JSON_HEX_TAG encodes < and > so they can't form --> inside the comment.
+$metaJson = json_encode($meta, JSON_HEX_TAG | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
 header('Content-Type: text/html; charset=utf-8');
+echo '<!--ROTMETA:' . $metaJson . '-->' . "\n";
 echo $html;
 
 // ---- helpers ----
@@ -174,5 +179,35 @@ function resolveUrl($url, $scheme, $origin, $dir) {
     if (strpos($url, '//') === 0) return $scheme . ':' . $url;
     if (strpos($url, '/') === 0)  return $origin . $url;
     return $dir . $url;
+}
+
+// Extracts a plain-text excerpt and the first image URL from an HTML fragment.
+function extractMeta($html) {
+    $dom = new DOMDocument();
+    libxml_use_internal_errors(true);
+    $dom->loadHTML('<?xml encoding="UTF-8"><html><body>' . $html . '</body></html>');
+    libxml_clear_errors();
+
+    // Plain text for excerpt — strip tags and collapse whitespace.
+    $body = $dom->getElementsByTagName('body')->item(0);
+    $rawText = $body ? $body->textContent : strip_tags($html);
+    $rawText = preg_replace('/\s+/', ' ', trim($rawText));
+    $excerpt = mb_substr($rawText, 0, 250);
+    if (mb_strlen($rawText) > 250) {
+        $excerpt = mb_substr($rawText, 0, mb_strrpos(mb_substr($rawText, 0, 250), ' ')) . '...';
+    }
+
+    // First image with an https:// src.
+    $image = '';
+    $imgs = $dom->getElementsByTagName('img');
+    for ($i = 0; $i < $imgs->length; $i++) {
+        $src = $imgs->item($i)->getAttribute('src');
+        if (strpos($src, 'https://') === 0 || strpos($src, 'http://') === 0) {
+            $image = $src;
+            break;
+        }
+    }
+
+    return ['excerpt' => $excerpt, 'image' => $image];
 }
 ?>
