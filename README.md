@@ -1,6 +1,11 @@
 # Instapaper-auth
 Code-based auth for Instapaper's service, bridging OAuth2 to legacy devices
 
+## Superseded
+This project has been superseded by a more generic, multi-service approach. 
+
+Please see: [https://github.com/webOSArchive/oauth-broker-for-webos](https://github.com/webOSArchive/oauth-broker-for-webos)
+
 ## Requirements
 - A web server
 - PHP
